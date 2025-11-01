@@ -1,27 +1,51 @@
-// backend/routes/mgnregaRoutes.js
 import express from "express";
+import { fetchAndStoreMGNREGAData } from "../utils/fetchMGNREGA.js";
 import DistrictData from "../models/DistrictData.js";
+import { normalizeState, normalizeDistrict } from "../utils/normalize.js";
 
 const router = express.Router();
 
-// Get list of districts for dropdown
-router.get("/districts", async (req, res) => {
+/**
+ * @route GET /api/mgnrega
+ * @desc Fetch MGNREGA data for given state & district
+ * @query state, district
+ */
+router.get("/", async (req, res) => {
   try {
-    const districts = await DistrictData.distinct("district_name", { state_name: "Uttar Pradesh" });
-    res.json(districts.sort());
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
+    const { state, district } = req.query;
+    console.log("📍 Received request for:", { state, district });
 
-// Get data for one district
-router.get("/:district", async (req, res) => {
-  try {
-    const data = await DistrictData.find({ district_name: req.params.district })
-      .sort({ fin_year: 1, month: 1 });
-    res.json(data);
+    // Normalize inputs
+    const normalizedState = normalizeState(state);
+    const normalizedDistrict = normalizeDistrict(district);
+    console.log("🧩 Normalized to:", { normalizedState, normalizedDistrict });
+
+    // Fetch + store new data
+    await fetchAndStoreMGNREGAData(normalizedState, normalizedDistrict);
+
+    // Find from DB
+    const records = await DistrictData.find({
+      state_name: normalizedState,
+      ...(normalizedDistrict ? { district_name: normalizedDistrict } : {}),
+    });
+
+    // If no data and state is Delhi → show message
+    if (!records.length && normalizedState === "NCT OF DELHI") {
+      return res.status(200).json({
+        count: 0,
+        message:
+          "No MGNREGA data available for Delhi districts — MGNREGA applies only to rural areas.",
+        records: [],
+      });
+    }
+
+    res.status(200).json({
+      count: records.length,
+      records,
+    });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error("❌ Error in /api/mgnrega:", err);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 

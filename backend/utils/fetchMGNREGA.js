@@ -1,57 +1,65 @@
-// backend/utils/fetchMGNREGA.js
 import axios from "axios";
-import mongoose from "mongoose";
-import dotenv from "dotenv";
-import connectDB from "../config/db.js";
 import DistrictData from "../models/DistrictData.js";
-dotenv.config();
+import { normalizeState, normalizeDistrict } from "./normalize.js";
 
-const RESOURCE_ID = "9f2cbbac-16c8-4c33-9b8a-6dca1f0324b5";
+const API_URL = "https://api.data.gov.in/resource/ee03643a-ee4c-48c2-ac30-9f2ff26ab722";
+const API_KEY = process.env.DATA_GOV_API_KEY || "579b464db66ec23bdd000001228af32c5e13417751c484e9fbd6a924";
+const defaultFinYear = process.env.MGNREGA_FIN_YEAR || "2024-2025";
 
-export const fetchAndStoreMGNREGAData = async (state = "Uttar Pradesh", year = "2024-2025") => {
+async function getRecords(params) {
+  const res = await axios.get(API_URL, { params, timeout: 15000 });
+  return { status: res.status, data: res.data };
+}
+
+export const fetchAndStoreMGNREGAData = async (
+  state = "UTTAR PRADESH",
+  district = "",
+  finYear = defaultFinYear
+) => {
   try {
-    console.log(`📡 Fetching data for ${state} (${year})...`);
+    if (!API_KEY) throw new Error("Missing DATA_GOV_API_KEY environment variable");
 
-    const url = `https://api.data.gov.in/resource/${RESOURCE_ID}?api-key=${process.env.DATA_GOV_API_KEY}&format=json&limit=1000&filters[state_name]=${encodeURIComponent(
-      state
-    )}&filters[fin_year]=${year}`;
+    let normalizedState = normalizeState(state);
+    let normalizedDistrict = normalizeDistrict(district);
 
-    const { data } = await axios.get(url);
-
-    if (data?.records?.length > 0) {
-      for (const record of data.records) {
-        await DistrictData.findOneAndUpdate(
-          {
-            state_name: record.state_name,
-            district_name: record.district_name,
-            fin_year: record.fin_year,
-            month: record.month,
-          },
-          {
-            $set: {
-              no_of_households_worked: record.no_of_households_worked || 0,
-              persondays_generated: record.persondays_generated || 0,
-              wages_paid: record.wages_paid || 0,
-              last_updated: new Date(),
-            },
-          },
-          { upsert: true, new: true }
-        );
-      }
-      console.log(`✅ ${data.records.length} records updated.`);
-    } else {
-      console.log("⚠️ No records found from API.");
+    // 🚨 Fallback for Delhi (no MGNREGA data available)
+    if (normalizedState === "NCT OF DELHI") {
+      console.log("⚠️ Delhi detected — using fallback: HARYANA / SONIPAT");
+      normalizedState = "HARYANA";
+      normalizedDistrict = "SONIPAT";
     }
-  } catch (error) {
-    console.error("❌ Error fetching MGNREGA data:", error.message);
+
+    console.log(`🔄 Fetching MGNREGA data for state='${normalizedState}' district='${normalizedDistrict}' fin_year='${finYear}'`);
+
+    const params = {
+      "api-key": API_KEY,
+      format: "json",
+      limit: 500,
+      "filters[fin_year]": finYear,
+      "filters[state_name]": normalizedState,
+    };
+    if (normalizedDistrict) params["filters[district_name]"] = normalizedDistrict;
+
+    const { data } = await getRecords(params);
+    const records = data?.records || [];
+
+    if (!records.length) {
+      console.log(`⚠️ No records found for ${normalizedState} / ${normalizedDistrict}.`);
+      return [];
+    }
+
+    for (const record of records) {
+      await DistrictData.findOneAndUpdate(
+        { district_code: record.district_code, fin_year: record.fin_year },
+        record,
+        { upsert: true, new: true }
+      );
+    }
+
+    console.log(`✅ Stored ${records.length} records for ${normalizedState} / ${normalizedDistrict}`);
+    return records;
+  } catch (err) {
+    console.error("❌ Error fetching MGNREGA data:", err.response?.data || err.message);
+    return [];
   }
 };
-
-// 👇 Simpler direct run check
-if (process.argv[1].includes("fetchMGNREGA.js")) {
-  (async () => {
-    await connectDB();
-    await fetchAndStoreMGNREGAData("Uttar Pradesh", "2024-2025");
-    mongoose.connection.close();
-  })();
-}
