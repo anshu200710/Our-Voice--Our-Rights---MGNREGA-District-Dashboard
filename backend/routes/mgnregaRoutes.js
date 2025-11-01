@@ -5,37 +5,33 @@ import { normalizeState, normalizeDistrict } from "../utils/normalize.js";
 
 const router = express.Router();
 
-/**
- * @route GET /api/mgnrega
- * @desc Fetch MGNREGA data for given state & district
- * @query state, district
- */
 router.get("/", async (req, res) => {
   try {
-    const { state, district } = req.query;
-    console.log("📍 Received request for:", { state, district });
+    let { state, district } = req.query;
 
-    // Normalize inputs
+    if (!state) {
+      state = "UTTAR PRADESH";
+      district = "VARANASI";
+      console.log("🌍 Defaulting to:", { state, district });
+    }
+
+    console.log("📍 Request for:", { state, district });
+
     const normalizedState = normalizeState(state);
     const normalizedDistrict = normalizeDistrict(district);
-    console.log("🧩 Normalized to:", { normalizedState, normalizedDistrict });
 
-    // Fetch + store new data
-    await fetchAndStoreMGNREGAData(normalizedState, normalizedDistrict);
-
-    // Find from DB
-    const records = await DistrictData.find({
+    // Check DB first
+    let records = await DistrictData.find({
       state_name: normalizedState,
       ...(normalizedDistrict ? { district_name: normalizedDistrict } : {}),
     });
 
-    // If no data and state is Delhi → show message
-    if (!records.length && normalizedState === "NCT OF DELHI") {
-      return res.status(200).json({
-        count: 0,
-        message:
-          "No MGNREGA data available for Delhi districts — MGNREGA applies only to rural areas.",
-        records: [],
+    if (!records.length) {
+      console.log("🌀 No cached data, fetching from API...");
+      await fetchAndStoreMGNREGAData(normalizedState, normalizedDistrict);
+      records = await DistrictData.find({
+        state_name: normalizedState,
+        ...(normalizedDistrict ? { district_name: normalizedDistrict } : {}),
       });
     }
 

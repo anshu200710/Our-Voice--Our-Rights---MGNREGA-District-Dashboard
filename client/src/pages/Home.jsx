@@ -9,30 +9,12 @@ const Home = () => {
   const [state, setState] = useState("");
   const [district, setDistrict] = useState("");
   const [data, setData] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [showMessage, setShowMessage] = useState(false);
+  const [geoDetected, setGeoDetected] = useState(false);
 
-  useEffect(() => {
-    const loadLocationData = async () => {
-      try {
-        const geo = { state: "UTTAR PRADESH", district: "VARANASI" }; // mock for now
-        if (geo) {
-          setState(geo.state);
-          setDistrict(geo.district);
-          console.log("📍 Detected location:", geo);
-          await fetchData({ state: geo.state, district: geo.district });
-        } else {
-          await fetchData();
-        }
-      } catch (err) {
-        console.error("Location fetch failed:", err);
-        await fetchData();
-      }
-    };
-    loadLocationData();
-  }, []);
-
+  // Fetch MGNREGA data
   const fetchData = async (filters = {}) => {
     setLoading(true);
     setMessage("");
@@ -62,6 +44,27 @@ const Home = () => {
     }
   };
 
+  // Detect location only when user clicks
+  const handleDetectLocation = async () => {
+    setLoading(true);
+    try {
+      const geo = await fetchGeoLocation();
+      if (geo) {
+        setState(geo.state);
+        setDistrict(geo.district);
+        setGeoDetected(true);
+        console.log("📍 Detected location:", geo);
+        await fetchData({ state: geo.state, district: geo.district });
+      }
+    } catch (err) {
+      console.error("Location fetch failed:", err);
+      setMessage("⚠️ Failed to detect location, please select manually.");
+      setShowMessage(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const uniqueStates = [...new Set((data || []).map((d) => d.state_name))];
   const uniqueDistricts = [...new Set((data || []).map((d) => d.district_name))];
   const first = data[0] || {};
@@ -73,6 +76,7 @@ const Home = () => {
           🌾 MGNREGA Dashboard
         </h1>
 
+        {/* Warning / Message Box */}
         {showMessage && message && (
           <div className="max-w-2xl mx-auto mb-6 flex items-start bg-yellow-100 text-yellow-900 border border-yellow-400 rounded-xl shadow-md p-4 relative">
             <span className="mr-2 text-xl">⚠️</span>
@@ -86,28 +90,44 @@ const Home = () => {
           </div>
         )}
 
-        <div className="flex justify-center mb-6">
-          <DistrictSelector
-            states={uniqueStates}
-            selectedState={state}
-            onStateChange={(val) => fetchData({ state: val })}
-            selectedDistrict={district}
-            districts={uniqueDistricts}
-            onDistrictChange={(val) => fetchData({ district: val })}
-          />
-        </div>
+        {/* Detect Location Button */}
+        {!geoDetected && (
+          <div className="text-center mb-6">
+            <button
+              onClick={handleDetectLocation}
+              className="px-5 py-2 bg-blue-600 text-white font-semibold rounded-xl shadow hover:bg-blue-700 transition-all duration-200"
+              disabled={loading}
+            >
+              {loading ? "Detecting..." : "📍 Detect My Location"}
+            </button>
+          </div>
+        )}
 
+        {/* State/District Selector */}
+        {geoDetected && (
+          <div className="flex justify-center mb-6">
+            <DistrictSelector
+              states={uniqueStates}
+              selectedState={state}
+              onStateChange={(val) => fetchData({ state: val })}
+              selectedDistrict={district}
+              districts={uniqueDistricts}
+              onDistrictChange={(val) => fetchData({ district: val })}
+            />
+          </div>
+        )}
+
+        {/* Data Display */}
         {loading ? (
           <p className="text-center text-gray-500 mt-8 animate-pulse">
             Loading data...
           </p>
-        ) : !data.length ? (
+        ) : !data.length && !loading ? (
           !showMessage && (
             <p className="text-center text-red-500 mt-8">No data found.</p>
           )
         ) : (
           <>
-            {/* STATS CARDS */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mt-8">
               <StatsCard
                 title="Total Expenditure"
@@ -133,12 +153,10 @@ const Home = () => {
               />
             </div>
 
-            {/* TREND CHART */}
             <div className="mt-10">
               <TrendChart data={data} />
             </div>
 
-            {/* COMPARE SECTION */}
             <div className="mt-10">
               <CompareCard states={uniqueStates} />
             </div>
