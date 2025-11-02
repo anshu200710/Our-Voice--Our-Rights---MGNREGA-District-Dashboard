@@ -23,6 +23,14 @@ const Home = () => {
       const res = await fetchMGNREGAData(filters);
       const records = Array.isArray(res?.data) ? res.data : res?.records || [];
 
+      // 🌟 NEW: Get the final location from the backend response
+            const finalLocation = res?.location || filters;
+
+            // 🌟 NEW: Synchronize the frontend state with the final location used by the backend
+            // This is crucial for reflecting the fallback location (e.g., Varanasi instead of Delhi)
+            setState(finalLocation.state || "");
+            setDistrict(finalLocation.district || "");
+
       if (records.length === 0) {
         if (filters.state?.toUpperCase().includes("DELHI")) {
           setMessage("⚠️ MGNREGA data is not available for urban regions like Delhi.");
@@ -44,8 +52,30 @@ const Home = () => {
     }
   };
 
-  // Detect location only when user clicks
-  const handleDetectLocation = async () => {
+  // // Detect location only when user clicks
+  // const handleDetectLocation = async () => {
+  //   setLoading(true);
+  //   try {
+  //     const geo = await fetchGeoLocation();
+  //     if (geo) {
+  //       setState(geo.state);
+  //       setDistrict(geo.district);
+  //       setGeoDetected(true);
+  //       console.log("📍 Detected location:", geo);
+  //       await fetchData({ state: geo.state, district: geo.district });
+  //     }
+  //   } catch (err) {
+  //     console.error("Location fetch failed:", err);
+  //     setMessage("⚠️ Failed to detect location, please select manually.");
+  //     setShowMessage(true);
+  //   } finally {
+  //     setLoading(false);
+  //   }
+  // };
+
+
+  useEffect(() => {
+  const autoDetect = async () => {
     setLoading(true);
     try {
       const geo = await fetchGeoLocation();
@@ -53,17 +83,20 @@ const Home = () => {
         setState(geo.state);
         setDistrict(geo.district);
         setGeoDetected(true);
-        console.log("📍 Detected location:", geo);
+        console.log("📍 Auto-detected:", geo);
         await fetchData({ state: geo.state, district: geo.district });
       }
     } catch (err) {
-      console.error("Location fetch failed:", err);
-      setMessage("⚠️ Failed to detect location, please select manually.");
+      console.error("Auto location fetch failed:", err);
+      setMessage("⚠️ Failed to auto-detect location, please select manually.");
       setShowMessage(true);
     } finally {
       setLoading(false);
     }
   };
+
+  autoDetect();
+}, []);
 
   const uniqueStates = [...new Set((data || []).map((d) => d.state_name))];
   const uniqueDistricts = [...new Set((data || []).map((d) => d.district_name))];
@@ -90,7 +123,7 @@ const Home = () => {
           </div>
         )}
 
-        {/* Detect Location Button */}
+        {/* Detect Location Button
         {!geoDetected && (
           <div className="text-center mb-6">
             <button
@@ -101,7 +134,7 @@ const Home = () => {
               {loading ? "Detecting..." : "📍 Detect My Location"}
             </button>
           </div>
-        )}
+        )} */}
 
         {/* State/District Selector */}
         {geoDetected && (

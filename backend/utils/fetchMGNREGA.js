@@ -1,39 +1,28 @@
 import axios from "axios";
 import DistrictData from "../models/DistrictData.js";
-import { normalizeState, normalizeDistrict } from "./normalize.js";
 
+const API_KEY = process.env.DATA_GOV_API_KEY || "579b464db66ec23bdd000001228af32c5e13417751c484e9fbd6a924";
 const API_URL = "https://api.data.gov.in/resource/ee03643a-ee4c-48c2-ac30-9f2ff26ab722";
-const API_KEY = process.env.DATA_GOV_API_KEY;
-const defaultFinYear = process.env.MGNREGA_FIN_YEAR || "2024-2025";
-
-async function getRecords(params) {
-  const res = await axios.get(API_URL, { params, timeout: 15000 });
-  return { status: res.status, data: res.data };
-}
+const defaultFinYear = "2024-2025";
 
 export const fetchAndStoreMGNREGAData = async (state, district = "", finYear = defaultFinYear) => {
   try {
-    let normalizedState = normalizeState(state);
-    let normalizedDistrict = normalizeDistrict(district);
+    const encodedFinYear = encodeURIComponent(finYear);
+    const encodedState = encodeURIComponent(state.trim());
+    const encodedDistrict = district ? encodeURIComponent(district.trim()) : "";
 
-    console.log(`🔄 Fetching MGNREGA for ${normalizedState} / ${normalizedDistrict}`);
+    // Construct URL exactly like the working government one
+    let url = `${API_URL}?api-key=${API_KEY}&format=json&limit=500&filters[fin_year]=${encodedFinYear}&filters[state_name]=${encodedState}`;
+    if (encodedDistrict) url += `&filters[district_name]=${encodedDistrict}`;
 
-    const params = {
-      "api-key": API_KEY,
-      format: "json",
-      limit: 500,
-      "filters[fin_year]": finYear,
-      "filters[state_name]": normalizedState,
-    };
-    if (normalizedDistrict) params["filters[district_name]"] = normalizedDistrict;
+    console.log("🌐 Fetching from:", url);
 
-    const { data } = await getRecords(params);
-    const records = data?.records || [];
+    const res = await axios.get(url, { timeout: 20000 });
+    const records = res.data?.records || [];
 
-    if (!records.length) {
-      console.log(`⚠️ No records for ${normalizedState} / ${normalizedDistrict}`);
-      return [];
-    }
+    console.log(`✅ Got ${records.length} records`);
+
+    if (!records.length) return [];
 
     for (const record of records) {
       await DistrictData.findOneAndUpdate(
@@ -43,10 +32,9 @@ export const fetchAndStoreMGNREGAData = async (state, district = "", finYear = d
       );
     }
 
-    console.log(`✅ Stored ${records.length} records for ${normalizedState}/${normalizedDistrict}`);
     return records;
   } catch (err) {
-    console.error("❌ Error fetching MGNREGA:", err.message);
+    console.error("❌ MGNREGA fetch error:", err.message);
     return [];
   }
 };
